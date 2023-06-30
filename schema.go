@@ -2,7 +2,6 @@ package confi
 
 import (
 	"reflect"
-	"regexp"
 	"strings"
 	"time"
 
@@ -11,11 +10,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type Formatted interface {
+type formatted interface {
 	SchemaFormat() string
 }
 
-type Patterned interface {
+type patterned interface {
 	SchemaPattern() string
 }
 
@@ -36,54 +35,109 @@ type Schema struct {
 	Maximum          any     `yaml:"maximum,omitempty" prop:"inner" alias:"max"`
 	ExclusiveMaximum any     `yaml:"exclusiveMaximum,omitempty" prop:"inner" alias:"xmax"`
 	MultipleOf       any     `yaml:"multipleOf,omitempty" prop:"inner" alias:"mul"`
-	MinLength        *uint64 `yaml:"minLength,omitempty" prop:"inner" alias:"minlen"`
+	MinLength        uint64  `yaml:"minLength,omitempty" prop:"inner" alias:"minlen"`
 	MaxLength        *uint64 `yaml:"maxLength,omitempty" prop:"inner" alias:"maxlen"`
 
 	// properties below are applied to primitive or outer types
 	Description   string  `yaml:"description,omitempty" prop:"outer" alias:"desc,doc"`
 	Default       any     `yaml:"default,omitempty" prop:"outer" alias:"def"`
-	MinItems      *uint64 `yaml:"minItems,omitempty" prop:"outer" alias:"minsize"`
+	MinItems      uint64  `yaml:"minItems,omitempty" prop:"outer" alias:"minsize"`
 	MaxItems      *uint64 `yaml:"maxItems,omitempty" prop:"outer" alias:"maxsize"`
 	UniqueItems   bool    `yaml:"uniqueItems,omitempty" prop:"outer" alias:"unique"`
-	MinProperties *uint64 `yaml:"minProperties,omitempty" prop:"outer" alias:"minprops"`
+	MinProperties uint64  `yaml:"minProperties,omitempty" prop:"outer" alias:"minprops"`
 	MaxProperties *uint64 `yaml:"maxProperties,omitempty" prop:"outer" alias:"maxprops"`
 }
 
-func makeSchema(source any, tag reflect.StructTag) (*Schema, error) {
-	value := reflect.ValueOf(source)
-	for value.Kind() == reflect.Pointer {
-		value = reflect.Indirect(value)
+func (s *Schema) ApplyDefaults(source any) error {
+	return s.applyDefaults(reflect.ValueOf(source))
+}
+
+func (s *Schema) applyDefaults(value reflect.Value) error {
+	for value.Kind() == reflect.Ptr {
+		value = value.Elem()
 	}
 
+	if s.Default != nil {
+		value.Set(reflect.ValueOf(s.Default))
+		return nil
+	}
+
+	if schema, ok := s.AdditionalProperties.(*Schema); ok {
+		for _, key := range value.MapKeys() {
+			if err := schema.applyDefaults(value.MapIndex(key)); err != nil {
+				return errors.Wrapf(err, "on key '%v'", key.Interface())
+			}
+		}
+
+		return nil
+	}
+
+	if schema := s.Items; schema != nil {
+		for i := 0; i < value.Len(); i++ {
+			if err := schema.applyDefaults(value.Index(i)); err != nil {
+				return errors.Wrapf(err, "on index %d", i)
+			}
+		}
+
+		return nil
+	}
+
+	if properties := s.Properties; properties != nil {
+		for fieldNum := 0; fieldNum < value.NumField(); fieldNum++ {
+			field := value.Type().Field(fieldNum)
+			options := getYAMLOptions(field)
+			if options.inline {
+				if err := s.applyDefaults(value.Field(fieldNum)); err != nil {
+					return errors.Wrapf(err, "on embedded field %s", field.Name)
+				}
+
+				continue
+			}
+
+			property := properties[options.name]
+			if err := property.applyDefaults(value.Field(fieldNum)); err != nil {
+				return errors.Wrapf(err, "on field %s", options.name)
+			}
+		}
+	}
+
+	return nil
+}
+
+func GenerateSchema(value any) (*Schema, error) {
+	return makeSchema(reflect.TypeOf(value), "")
+}
+
+func makeSchema(valueType reflect.Type, tag reflect.StructTag) (*Schema, error) {
+	resolvedType := indirectType(valueType)
+	ptr := reflect.New(resolvedType)
+	value := ptr.Elem()
+
 	var node yaml.Node
-	if err := node.Encode(value.Interface()); err != nil {
+	if err := node.Encode(ptr.Interface()); err != nil {
 		return nil, errors.Wrap(err, "encode")
 	}
 
-	var (
-		valueType = value.Type()
-		elemType  reflect.Type
-	)
-
+	var elemType reflect.Type
 	var s Schema
 	switch {
 	case node.Tag == "!!str":
 		s.Type = "string"
 		switch value.Interface().(type) {
-		case regexp.Regexp:
-			s.Format = "regex"
 		case time.Duration:
 			s.Pattern = `(\d+h)?(\d+m)?(\d+s)?(\d+ms)?(\d+µs)?(\d+ns)?`
-		case time.Time:
-			s.Format = "date-time"
 		default:
-			if formatted, ok := value.Interface().(Formatted); ok {
+			if formatted, ok := ptr.Interface().(formatted); ok {
 				s.Format = formatted.SchemaFormat()
 			}
-			if patterned, ok := value.Interface().(Patterned); ok {
+			if patterned, ok := ptr.Interface().(patterned); ok {
 				s.Pattern = patterned.SchemaPattern()
 			}
 		}
+
+	case node.Tag == "!!timestamp":
+		s.Type = "string"
+		s.Format = "date-time"
 
 	case node.Tag == "!!int":
 		switch {
@@ -99,23 +153,23 @@ func makeSchema(source any, tag reflect.StructTag) (*Schema, error) {
 	case node.Tag == "!!bool":
 		s.Type = "boolean"
 
-	case node.Tag == "!!seq" && (value.Kind() == reflect.Slice || value.Kind() == reflect.Array):
-		elemType = value.Type().Elem()
-		items, err := makeSchema(reflect.New(elemType).Interface(), tag)
+	case node.Tag == "!!seq" && (resolvedType.Kind() == reflect.Slice || resolvedType.Kind() == reflect.Array):
+		elemType = valueType.Elem()
+		items, err := makeSchema(elemType, "")
 		if err != nil {
 			return nil, errors.Wrap(err, "generate items")
 		}
 
 		s.Type = "array"
 		s.Items = items
-		if value.Kind() == reflect.Array {
-			s.MinItems = pointer.To[uint64](uint64(value.Len()))
-			s.MaxItems = pointer.To[uint64](uint64(value.Len()))
+		if resolvedType.Kind() == reflect.Array {
+			s.MinItems = uint64(value.Len())
+			s.MaxItems = pointer.To(uint64(value.Len()))
 		}
 
-	case node.Tag == "!!map" && value.Kind() == reflect.Map:
-		elemType = value.Type().Elem()
-		additionalProperties, err := makeSchema(reflect.New(elemType).Interface(), tag)
+	case node.Tag == "!!map" && resolvedType.Kind() == reflect.Map:
+		elemType = resolvedType.Elem()
+		additionalProperties, err := makeSchema(elemType, "")
 		if err != nil {
 			return nil, errors.Wrap(err, "generate additionalProperties")
 		}
@@ -123,8 +177,8 @@ func makeSchema(source any, tag reflect.StructTag) (*Schema, error) {
 		s.Type = "object"
 		s.AdditionalProperties = additionalProperties
 
-	case node.Tag == "!!map" && value.Kind() == reflect.Struct:
-		properties, required, err := makeStructSchema(value)
+	case node.Tag == "!!map" && resolvedType.Kind() == reflect.Struct:
+		properties, required, err := makeStructSchema(valueType)
 		if err != nil {
 			return nil, errors.Wrap(err, "generate properties & required")
 		}
@@ -136,7 +190,7 @@ func makeSchema(source any, tag reflect.StructTag) (*Schema, error) {
 	}
 
 	if s.Type == "" {
-		return nil, errors.Errorf("unable to detect type for %s %T", node.Tag, source)
+		return nil, errors.Errorf("unable to detect type for %s %s", node.Tag, resolvedType)
 	}
 
 	if err := applySchemaProps(&s, tag, valueType, elemType); err != nil {
@@ -147,18 +201,13 @@ func makeSchema(source any, tag reflect.StructTag) (*Schema, error) {
 }
 
 func applySchemaProps(s *Schema, tag reflect.StructTag, valueType, elemType reflect.Type) error {
-	schema := reflect.ValueOf(s)
-	for schema.Kind() == reflect.Pointer {
-		schema = reflect.Indirect(schema)
-	}
-
+	schema := reflect.ValueOf(s).Elem()
 	schemaType := schema.Type()
 	for fieldNum := 0; fieldNum < schemaType.NumField(); fieldNum++ {
 		var (
 			field    = schemaType.Field(fieldNum)
 			propType string
 			isArray  bool
-			aliases  []string
 		)
 
 		for i, option := range strings.Split(field.Tag.Get("prop"), ",") {
@@ -174,18 +223,8 @@ func applySchemaProps(s *Schema, tag reflect.StructTag, valueType, elemType refl
 			continue
 		}
 
-		for _, option := range strings.Split(field.Tag.Get("yaml"), ",") {
-			aliases = append(aliases, option)
-			break
-		}
-
-		for _, option := range strings.Split(field.Tag.Get("alias"), ",") {
-			aliases = append(aliases, option)
-		}
-
-		if len(aliases) == 0 {
-			continue
-		}
+		aliases := []string{getYAMLOptions(field).name}
+		aliases = append(aliases, strings.Split(field.Tag.Get("alias"), ",")...)
 
 		var prop string
 		for _, alias := range aliases {
@@ -199,17 +238,24 @@ func applySchemaProps(s *Schema, tag reflect.StructTag, valueType, elemType refl
 			continue
 		}
 
-		if elemType == nil {
-			elemType = valueType
-		}
-
+		targetField := schema.Field(fieldNum)
 		var fieldValue reflect.Value
 		if field.Type.String() == "interface {}" {
+			targetType := valueType
+			if propType == "inner" && elemType != nil {
+				targetType = elemType
+				if s.Type == "array" {
+					targetField = reflect.Indirect(reflect.ValueOf(s.Items)).Field(fieldNum)
+				} else if s.Type == "object" && s.AdditionalProperties != false {
+					targetField = reflect.Indirect(reflect.ValueOf(s.AdditionalProperties)).Field(fieldNum)
+				}
+			}
+
 			if isArray {
 				prop = "[" + prop + "]"
-				fieldValue = reflect.New(reflect.SliceOf(elemType))
+				fieldValue = reflect.New(reflect.SliceOf(targetType))
 			} else {
-				fieldValue = reflect.New(elemType)
+				fieldValue = reflect.New(targetType)
 			}
 		} else {
 			fieldValue = reflect.New(field.Type)
@@ -220,56 +266,30 @@ func applySchemaProps(s *Schema, tag reflect.StructTag, valueType, elemType refl
 		}
 
 		fieldValue = reflect.Indirect(fieldValue)
-		if s.Type == "array" && propType == "inner" {
-			reflect.Indirect(reflect.ValueOf(s.Items)).Field(fieldNum).Set(fieldValue)
-		} else if s.Type == "object" && propType == "inner" && s.AdditionalProperties != false {
-			reflect.ValueOf(s.AdditionalProperties).Field(fieldNum).Set(fieldValue)
-		} else {
-			schema.Field(fieldNum).Set(fieldValue)
-		}
+		targetField.Set(fieldValue)
 	}
 
 	return nil
 }
 
-func makeStructSchema(value reflect.Value) (map[string]Schema, []string, error) {
+func makeStructSchema(valueType reflect.Type) (map[string]Schema, []string, error) {
 	var (
-		properties = make(map[string]Schema)
-		required   = make([]string, 0)
-		valueType  = value.Type()
+		resolvedType = indirectType(valueType)
+		properties   = make(map[string]Schema)
+		required     []string
 	)
 
-	for fieldNum := 0; fieldNum < valueType.NumField(); fieldNum++ {
-		var (
-			name      string
-			inline    bool
-			omitempty bool
-		)
-
-		field := valueType.Field(fieldNum)
+	for fieldNum := 0; fieldNum < resolvedType.NumField(); fieldNum++ {
+		field := resolvedType.Field(fieldNum)
 		if !field.IsExported() {
 			continue
 		}
 
-		for i, flag := range strings.Split(field.Tag.Get("yaml"), ",") {
-			switch {
-			case i == 0:
-				name = flag
-			case flag == "inline":
-				inline = true
-			case flag == "omitempty":
-				omitempty = true
-			}
-		}
-
-		if name == "" {
-			name = field.Name
-		}
-
-		if inline {
-			embedded, err := makeSchema(reflect.New(field.Type).Interface(), "")
+		options := getYAMLOptions(field)
+		if options.inline {
+			embedded, err := makeSchema(field.Type, "")
 			if err != nil {
-				return nil, nil, errors.Wrapf(err, "generate embedded schema for %s", name)
+				return nil, nil, errors.Wrapf(err, "generate embedded schema for %s", options.name)
 			}
 
 			required = append(required, embedded.Required...)
@@ -280,21 +300,52 @@ func makeStructSchema(value reflect.Value) (map[string]Schema, []string, error) 
 			continue
 		}
 
-		if name == "-" {
-			continue
+		if !options.omitempty {
+			required = append(required, options.name)
 		}
 
-		if !omitempty {
-			required = append(required, name)
-		}
-
-		property, err := makeSchema(value.Field(fieldNum).Interface(), field.Tag)
+		property, err := makeSchema(resolvedType.Field(fieldNum).Type, field.Tag)
 		if err != nil {
-			return nil, nil, errors.Wrapf(err, "generate schema for %s", name)
+			return nil, nil, errors.Wrapf(err, "generate schema for %s", options.name)
 		}
 
-		properties[name] = *property
+		properties[options.name] = *property
 	}
 
 	return properties, required, nil
+}
+
+type yamlOptions struct {
+	name      string
+	omitempty bool
+	inline    bool
+}
+
+func getYAMLOptions(field reflect.StructField) (options yamlOptions) {
+	for i, option := range strings.Split(field.Tag.Get("yaml"), ",") {
+		switch {
+		case i == 0:
+			if len(option) > 0 {
+				options.name = option
+			} else {
+				options.name = field.Name
+			}
+
+		case option == "omitempty":
+			options.omitempty = true
+
+		case option == "inline":
+			options.inline = true
+		}
+	}
+
+	return
+}
+
+func indirectType(typ reflect.Type) reflect.Type {
+	for typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+	}
+
+	return typ
 }
