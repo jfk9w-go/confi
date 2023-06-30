@@ -53,19 +53,28 @@ func (s *Schema) ApplyDefaults(source any) error {
 }
 
 func (s *Schema) applyDefaults(value reflect.Value) error {
-	for value.Kind() == reflect.Ptr {
-		value = value.Elem()
-	}
-
-	if s.Default != nil {
+	if s.Default != nil && value.IsZero() {
 		value.Set(reflect.ValueOf(s.Default))
 		return nil
+	}
+
+	if value.Kind() == reflect.Ptr {
+		if value.IsNil() {
+			if !value.CanAddr() {
+				return nil
+			}
+
+			resolvedType := indirectType(value.Type())
+			value.Set(reflect.New(resolvedType))
+		}
+
+		value = value.Elem()
 	}
 
 	if schema, ok := s.AdditionalProperties.(*Schema); ok {
 		for _, key := range value.MapKeys() {
 			if err := schema.applyDefaults(value.MapIndex(key)); err != nil {
-				return errors.Wrapf(err, "on key '%v'", key.Interface())
+				return errors.Wrapf(err, "on key %v", key.Interface())
 			}
 		}
 
@@ -110,11 +119,14 @@ func GenerateSchema(value any) (*Schema, error) {
 
 func makeSchema(valueType reflect.Type, tag reflect.StructTag) (*Schema, error) {
 	resolvedType := indirectType(valueType)
-	ptr := reflect.New(resolvedType)
-	value := ptr.Elem()
+	value := reflect.New(resolvedType).Elem()
+	sourceValue := value
+	if valueType.Kind() == reflect.Ptr {
+		sourceValue = sourceValue.Addr()
+	}
 
 	var node yaml.Node
-	if err := node.Encode(ptr.Interface()); err != nil {
+	if err := node.Encode(sourceValue.Interface()); err != nil {
 		return nil, errors.Wrap(err, "encode")
 	}
 
@@ -126,11 +138,13 @@ func makeSchema(valueType reflect.Type, tag reflect.StructTag) (*Schema, error) 
 		switch value.Interface().(type) {
 		case time.Duration:
 			s.Pattern = `(\d+h)?(\d+m)?(\d+s)?(\d+ms)?(\d+µs)?(\d+ns)?`
+
 		default:
-			if formatted, ok := ptr.Interface().(formatted); ok {
+			if formatted, ok := sourceValue.Interface().(formatted); ok {
 				s.Format = formatted.SchemaFormat()
 			}
-			if patterned, ok := ptr.Interface().(patterned); ok {
+
+			if patterned, ok := sourceValue.Interface().(patterned); ok {
 				s.Pattern = patterned.SchemaPattern()
 			}
 		}
@@ -343,7 +357,7 @@ func getYAMLOptions(field reflect.StructField) (options yamlOptions) {
 }
 
 func indirectType(typ reflect.Type) reflect.Type {
-	for typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Ptr {
 		typ = typ.Elem()
 	}
 
