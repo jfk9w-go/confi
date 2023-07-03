@@ -2,7 +2,7 @@ package confi
 
 import (
 	"context"
-	"os"
+	"io"
 	"path/filepath"
 	"strings"
 
@@ -17,6 +17,7 @@ type DefaultSourceProvider struct {
 	EnvPrefix string
 	Env       []string
 	Args      []string
+	Stdin     io.Reader
 }
 
 func (p *DefaultSourceProvider) GetSources(ctx context.Context) ([]Source, error) {
@@ -84,7 +85,7 @@ func (p *DefaultSourceProvider) GetSources(ctx context.Context) ([]Source, error
 					stdin = nil
 				} else {
 					stdin = &InputSource{
-						Input:  Reader{R: os.Stdin},
+						Input:  Reader{R: p.Stdin},
 						Format: prop.Value,
 					}
 				}

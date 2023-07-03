@@ -1,8 +1,8 @@
 package confi_test
 
 import (
+	"bytes"
 	"context"
-	"os"
 	"testing"
 
 	"github.com/jfk9w-go/confi"
@@ -11,6 +11,8 @@ import (
 )
 
 func TestDefaultSourceProvider_GetSources(t *testing.T) {
+	stdin := new(bytes.Buffer)
+
 	tests := []struct {
 		name     string
 		provider *confi.DefaultSourceProvider
@@ -60,10 +62,11 @@ func TestDefaultSourceProvider_GetSources(t *testing.T) {
 					"test_app_config_file=config.yaml",
 					"test_app_config_stdin=json",
 				},
+				Stdin: stdin,
 			},
 			expected: []confi.Source{
 				confi.InputSource{Input: confi.File("config.yaml"), Format: "yaml"},
-				confi.InputSource{Input: confi.Reader{R: os.Stdin}, Format: "json"},
+				confi.InputSource{Input: confi.Reader{R: stdin}, Format: "json"},
 			},
 		},
 		{
@@ -73,10 +76,11 @@ func TestDefaultSourceProvider_GetSources(t *testing.T) {
 					"--config.file=config.yaml",
 					"--config.stdin=json",
 				},
+				Stdin: stdin,
 			},
 			expected: []confi.Source{
 				confi.InputSource{Input: confi.File("config.yaml"), Format: "yaml"},
-				confi.InputSource{Input: confi.Reader{R: os.Stdin}, Format: "json"},
+				confi.InputSource{Input: confi.Reader{R: stdin}, Format: "json"},
 			},
 		},
 		{
@@ -90,7 +94,7 @@ func TestDefaultSourceProvider_GetSources(t *testing.T) {
 				},
 				Args: []string{
 					"--config.file=config1.yaml",
-					"--config.file=config2.xml",
+					"--config.file=config2.json",
 					"--config.stdin=",
 					"--properties.duration=10m",
 				},
@@ -100,7 +104,7 @@ func TestDefaultSourceProvider_GetSources(t *testing.T) {
 					{Path: []string{"properties", "property"}, Value: "value"},
 				},
 				confi.InputSource{Input: confi.File("config1.yaml"), Format: "yaml"},
-				confi.InputSource{Input: confi.File("config2.xml"), Format: "xml"},
+				confi.InputSource{Input: confi.File("config2.json"), Format: "json"},
 				confi.PropertySource{
 					{Path: []string{"properties", "duration"}, Value: "10m"},
 				},

@@ -1,10 +1,8 @@
 package confi
 
 import (
-	"bytes"
 	"encoding/gob"
 	"encoding/json"
-	"encoding/xml"
 	"io"
 
 	"github.com/pkg/errors"
@@ -72,20 +70,9 @@ var Gob = Codec{
 	UnmarshalFn: func(reader io.Reader, value any) error { return gob.NewDecoder(reader).Decode(value) },
 }
 
-var XML = Codec{
-	MarshalFn: func(value any, writer io.Writer) error {
-		var b bytes.Buffer
-		enc := xml.NewEncoder(&b)
-		enc.Indent("", "  ")
-		return enc.Encode(value)
-	},
-
-	UnmarshalFn: func(reader io.Reader, value any) error { return xml.NewDecoder(reader).Decode(value) },
-}
-
 var Codecs = map[string]Codec{
 	"json": JSON,
 	"yaml": YAML,
+	"yml":  YAML,
 	"gob":  Gob,
-	"xml":  XML,
 }

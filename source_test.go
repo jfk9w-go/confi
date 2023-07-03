@@ -5,10 +5,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jfk9w-go/confi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/jfk9w-go/confi"
 )
 
 func TestSource_GetValues(t *testing.T) {
