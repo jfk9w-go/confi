@@ -76,3 +76,14 @@ var Codecs = map[string]Codec{
 	"yml":  YAML,
 	"gob":  Gob,
 }
+
+type Format string
+
+func (f Format) SchemaEnum() any {
+	var formats []string
+	for format := range Codecs {
+		formats = append(formats, format)
+	}
+
+	return formats
+}

@@ -18,6 +18,10 @@ type patterned interface {
 	SchemaPattern() string
 }
 
+type enum interface {
+	SchemaEnum() any
+}
+
 type Schema struct {
 	Type                 string            `yaml:"type"`
 	Items                *Schema           `yaml:"items,omitempty"`
@@ -54,6 +58,11 @@ func (s *Schema) ApplyDefaults(source any) error {
 
 func (s *Schema) applyDefaults(value reflect.Value) error {
 	if s.Default != nil && value.IsZero() {
+		if !value.CanAddr() {
+			return errors.New(
+				`unable to set default value for unaddressable value (use pointer values if this is in a map or remove "default" tag)`)
+		}
+
 		value.Set(reflect.ValueOf(s.Default))
 		return nil
 	}
@@ -146,6 +155,10 @@ func makeSchema(valueType reflect.Type, tag reflect.StructTag) (*Schema, error) 
 
 			if patterned, ok := sourceValue.Interface().(patterned); ok {
 				s.Pattern = patterned.SchemaPattern()
+			}
+
+			if enum, ok := sourceValue.Interface().(enum); ok {
+				s.Enum = enum.SchemaEnum()
 			}
 		}
 
