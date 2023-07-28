@@ -61,7 +61,12 @@ var JSON = Codec{
 }
 
 var YAML = Codec{
-	MarshalFn:   func(value any, writer io.Writer) error { return yaml.NewEncoder(writer).Encode(value) },
+	MarshalFn: func(value any, writer io.Writer) error {
+		encoder := yaml.NewEncoder(writer)
+		encoder.SetIndent(2)
+		return encoder.Encode(value)
+	},
+
 	UnmarshalFn: func(reader io.Reader, value any) error { return yaml.NewDecoder(reader).Decode(value) },
 }
 
