@@ -61,8 +61,10 @@ func FromProvider[T any](ctx context.Context, provider SourceProvider) (*T, *Sch
 func SpecifyType(value any) any {
 	switch typed := value.(type) {
 	case string:
-		if v, err := strconv.ParseBool(typed); err == nil {
-			return v
+		if strings.EqualFold("true", typed) {
+			return true
+		} else if strings.EqualFold("false", typed) {
+			return false
 		} else if v, err := strconv.ParseUint(typed, 10, 64); err == nil {
 			return v
 		} else if v, err := strconv.ParseInt(typed, 10, 64); err == nil {
