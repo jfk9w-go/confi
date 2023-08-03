@@ -119,6 +119,11 @@ func TestSpecifyType(t *testing.T) {
 			expected: 123.456,
 		},
 		{
+			name:     "string not to float",
+			value:    "+123.456",
+			expected: "+123.456",
+		},
+		{
 			name:     "slice",
 			value:    []any{"sup", "true", []any{"123", "-123"}, "123.456"},
 			expected: []any{"sup", true, []any{uint64(123), int64(-123)}, 123.456},

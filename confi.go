@@ -58,39 +58,47 @@ func FromProvider[T any](ctx context.Context, provider SourceProvider) (*T, *Sch
 	return &config, schema, nil
 }
 
-func SpecifyType(value any) any {
-	switch typed := value.(type) {
-	case string:
-		if strings.EqualFold("true", typed) {
-			return true
-		} else if strings.EqualFold("false", typed) {
-			return false
-		} else if v, err := strconv.ParseUint(typed, 10, 64); err == nil {
-			return v
-		} else if v, err := strconv.ParseInt(typed, 10, 64); err == nil {
-			return v
-		} else if v, err := strconv.ParseFloat(typed, 64); err == nil {
-			return v
-		}
-
-		return value
-
-	case []any:
-		values := make([]any, len(typed))
-		for i, value := range typed {
-			values[i] = SpecifyType(value)
-		}
-
-		return values
-
-	case map[string]any:
-		values := make(map[any]any, len(typed))
-		for key, value := range typed {
-			values[SpecifyType(key)] = SpecifyType(value)
-		}
-
-		return values
+func testFloat(source string, target float64) bool {
+	tokens := strings.Split(source, ".")
+	var prec int
+	if len(tokens) > 1 {
+		prec = len(tokens[1])
 	}
 
-	return value
+	return strconv.FormatFloat(target, 'f', prec, 64) == source
+}
+
+func SpecifyType(source any) any {
+	switch source := source.(type) {
+	case string:
+		if target, err := strconv.ParseBool(source); err == nil && strconv.FormatBool(target) == source {
+			return true
+		} else if target, err := strconv.ParseUint(source, 10, 64); err == nil && strconv.FormatUint(target, 10) == source {
+			return target
+		} else if target, err := strconv.ParseInt(source, 10, 64); err == nil && strconv.FormatInt(target, 10) == source {
+			return target
+		} else if target, err := strconv.ParseFloat(source, 64); err == nil && testFloat(source, target) {
+			return target
+		}
+
+		return source
+
+	case []any:
+		target := make([]any, len(source))
+		for i, value := range source {
+			target[i] = SpecifyType(value)
+		}
+
+		return target
+
+	case map[string]any:
+		target := make(map[any]any, len(source))
+		for key, value := range source {
+			target[SpecifyType(key)] = SpecifyType(value)
+		}
+
+		return target
+	}
+
+	return source
 }
