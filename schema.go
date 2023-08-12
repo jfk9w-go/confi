@@ -56,11 +56,13 @@ func (s *Schema) ApplyDefaults(source any) error {
 	return s.applyDefaults(reflect.ValueOf(source))
 }
 
+var errUnaddressable = errors.New(
+	`unable to set default value for unaddressable value (use pointer values if this is in a map or remove "default" tag)`)
+
 func (s *Schema) applyDefaults(value reflect.Value) error {
 	if s.Default != nil && value.IsZero() {
 		if !value.CanAddr() {
-			return errors.New(
-				`unable to set default value for unaddressable value (use pointer values if this is in a map or remove "default" tag)`)
+			return errUnaddressable
 		}
 
 		value.Set(reflect.ValueOf(s.Default))
@@ -69,8 +71,12 @@ func (s *Schema) applyDefaults(value reflect.Value) error {
 
 	if value.Kind() == reflect.Ptr {
 		if value.IsNil() {
-			if !value.CanAddr() {
+			if s.Default == nil {
 				return nil
+			}
+
+			if !value.CanAddr() {
+				return errUnaddressable
 			}
 
 			resolvedType := indirectType(value.Type())

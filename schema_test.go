@@ -206,6 +206,7 @@ func TestSchema_ApplyDefaults(t *testing.T) {
 		InnerObjSlice        []InnerObj           `yaml:"innerObjSlice" default:"[{innerString: aaa}, {innerString: bbb}]"`
 		HalfSetInnerObjSlice []InnerObj           `yaml:"halfSetInnerObjSlice"`
 		InnerObjPtr          *InnerObj            `yaml:"innerObjPtr"`
+		FilledInnerObjPtr    *InnerObj            `yaml:"filledInnerObjPtr" default:"{innerString: default_inner_string}"`
 		Map                  map[string]InnerObj  `yaml:"map" default:"{aaa: {innerString: bbb}}"`
 		HalfSetMap           map[string]*InnerObj `yaml:"halfSetMap"`
 	}
@@ -243,7 +244,7 @@ func TestSchema_ApplyDefaults(t *testing.T) {
 		InnerObj:             InnerObj{InnerString: "another_default_inner_string"},
 		InnerObjSlice:        []InnerObj{{InnerString: "aaa"}, {InnerString: "bbb"}},
 		HalfSetInnerObjSlice: []InnerObj{{InnerString: "aaa"}, {InnerString: "default_inner_string"}},
-		InnerObjPtr:          pointer.To(InnerObj{InnerString: "default_inner_string"}),
+		FilledInnerObjPtr:    pointer.To(InnerObj{InnerString: "default_inner_string"}),
 		Map:                  map[string]InnerObj{"aaa": {InnerString: "bbb"}},
 		HalfSetMap:           map[string]*InnerObj{"aaa": {InnerString: "bbb"}, "ccc": {InnerString: "default_inner_string"}, "ddd": nil},
 	}, value)

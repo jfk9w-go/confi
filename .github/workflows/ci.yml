@@ -1,14 +1,10 @@
-name: Go
+name: CI
 
-on:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
-  workflow_dispatch:
+on: [ push, pull_request, workflow_dispatch ]
 
 jobs:
-  build:
+  test:
+    name: Build and test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -17,8 +13,12 @@ jobs:
         with:
           go-version: stable
       - name: Build
-        run: go build -v ./...
+        run: make build
+      - name: Lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: latest
       - name: Test
-        run: go test -v ./...
+        run: make test
       - name: Update test coverage
         uses: ncruces/go-coverage-report@main
