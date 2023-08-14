@@ -1,3 +1,5 @@
+MODULE := github.com/jfk9w-go/confi
+
 build:
 	go build -v ./...
 
