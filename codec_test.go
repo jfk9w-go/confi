@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/jfk9w-go/confi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/jfk9w-go/confi"
 )
 
 func TestCodec(t *testing.T) {

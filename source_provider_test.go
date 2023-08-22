@@ -5,9 +5,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jfk9w-go/confi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/jfk9w-go/confi"
 )
 
 func TestDefaultSourceProvider_GetSources(t *testing.T) {

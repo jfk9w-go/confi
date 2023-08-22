@@ -5,9 +5,10 @@ import (
 	"time"
 
 	"github.com/AlekSi/pointer"
-	"github.com/jfk9w-go/confi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/jfk9w-go/confi"
 )
 
 type patternedValue string
