@@ -2,6 +2,8 @@ module github.com/jfk9w-go/confi
 
 go 1.21
 
+toolchain go1.21.0
+
 require (
 	github.com/AlekSi/pointer v1.2.0
 	github.com/pkg/errors v0.9.1
